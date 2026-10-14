@@ -1,45 +1,61 @@
-# Python package
-# Create and test a Python package on multiple Python versions.
-# Add steps that analyze code, save the dist with the build record, publish to a PyPI-compatible index, and more:
-# https://docs.microsoft.com/azure/devops/pipelines/languages/python
 
 trigger:
-- main
+  branches:
+    include:
+      - main
 
 pool:
-  vmImage: ubuntu-latest
+  vmImage: ubuntu-latest
 
-strategy:
-  matrix:
-    Python311:
-      python.version: '3.10'
+variables:
+  python.version: '3.10'
 
 steps:
-- task: UsePythonVersion@0
-  inputs:
-    versionSpec: '$(python.version)'
-  displayName: 'Use Python $(python.version)'
+- checkout: self
 
-- script: |
-    python -m pip install --upgrade pip
-    pip install -r requirements.txt
-  displayName: 'Install dependencies'
+- task: UsePythonVersion@0
+  displayName: 'Use Python $(python.version)'
+  inputs:
+    versionSpec: '$(python.version)'
+    addToPath: true
 
-- script: |
-    pip install pytest pytest-azurepipelines
-    pytest
-  displayName: 'pytest'
+- script: |
+    python --version
+    python -m pip install --upgrade pip
+    python -m pip install -r requirements.txt
+  displayName: 'Install dependencies'
 
-- task: ArchiveFiles@2
-  inputs:
-    rootFolderOrFile: '$(System.DefaultWorkingDirectory)'
-    includeRootFolder: false
-    archiveType: 'zip'
-    archiveFile: '$(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip'
-    replaceExistingArchive: true
-    verbose: true
-- task: PublishBuildArtifacts@1
-  inputs:
-    PathtoPublish: '$(Build.ArtifactStagingDirectory)'
-    ArtifactName: 'drop'
-    publishLocation: 'Container'
+- script: |
+    python -m pip install pytest pytest-azurepipelines
+    python -m pytest
+  displayName: 'Run tests'
+
+# Package the repository contents without adding a parent folder.
+- task: ArchiveFiles@2
+  displayName: 'Package Flask application'
+  inputs:
+    rootFolderOrFile: '$(Build.SourcesDirectory)'
+    includeRootFolder: false
+    archiveType: zip
+    archiveFile: '$(Build.ArtifactStagingDirectory)/flask-app.zip'
+    replaceExistingArchive: true
+
+# Verify the files that will be deployed.
+- bash: |
+    set -e
+    ZIP="$(Build.ArtifactStagingDirectory)/flask-app.zip"
+
+    echo "Checking deployment package..."
+    unzip -l "$ZIP"
+
+    unzip -Z1 "$ZIP" | grep -qx 'requirements.txt'
+    unzip -Z1 "$ZIP" | grep -qx 'startup.py'
+    unzip -Z1 "$ZIP" | grep -qx 'hello_app/__init__.py'
+  displayName: 'Validate deployment package'
+
+- task: PublishBuildArtifacts@1
+  displayName: 'Publish deployment artifact'
+  inputs:
+    PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+    ArtifactName: drop
+    publishLocation: Container
